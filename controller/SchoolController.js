@@ -1,4 +1,5 @@
 const db = require('../db');
+const axios  = require('axios');
 function calculateDistance(lat1,lon1,lat2,lon2) {
     const R = 6371;
     const dlat = (lat2-lat1)*(Math.PI/180);//converting degree to radians
@@ -20,17 +21,26 @@ exports.addSchools = async(req,res,next)=>{
 }
 
 exports.listSchools = async(req,res,next)=>{
-    const {lat,lon} = req.body;
-    if(!lat || lon) {
-        return res.status(400).json({status:'fail',message:'not successful'});
+   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;//to remove the proxies server effect from changing the root ip address
+   try{
+    const response = await axios.get(`https://ipwho.is/${ip}`);
+    const {latitude,longitude,success,message} = response.data
+    console.log('the latitude:',latitude);
+    console.log('the longitude:',longitude);
+    if(!success) {
+        return res.status(400).json({message:`ip lookup failed:${message}`});
     }
-    const sql = 'SELECT * FROM schools'
-    db.query(sql,(err,result)=>{
-        if(err) return res.status(500).json({status:'fail',error:err});
+    const sql = 'SELECT * FROM schools';
+    db.query(sql,(err,results)=>{
+        if(err) return res.status(500).json({error:err.message});
         const sorted = results.map(school=>({
             ...school,
-            distance:calculateDistance(Number(lat),Number(lon),school.latitude,school.longitude)
+            distance:calculateDistance(latitude,longitude,school.latitude,school.longitude),
         })).sort((a,b)=>a.distance-b.distance);
         res.json(sorted);
-    });
-}
+    })
+   }
+   catch(error) {
+    res.status(500).json({error:error.message});
+   }
+};
