@@ -20,27 +20,42 @@ exports.addSchools = async(req,res,next)=>{
     });
 }
 
-exports.listSchools = async(req,res,next)=>{
-   const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;//to remove the proxies server effect from changing the root ip address
-   try{
+
+
+exports.listSchools = async (req, res, next) => {
+  let ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  
+  // Trim and normalize the IP
+  if (ip.includes(',')) ip = ip.split(',')[0]; // handle multiple IPs from proxies
+  ip = ip.replace('::ffff:', '').trim(); // handle IPv6-style IPs
+
+  // fallback to a known public IP if it's localhost or invalid
+  const invalidIPs = ['::1', '127.0.0.1', 'localhost'];
+  if (invalidIPs.includes(ip) || !ip.match(/^\d{1,3}(\.\d{1,3}){3}$/)) {
+    console.warn('Invalid IP detected, falling back to 8.8.8.8');
+    ip = '8.8.8.8'; // Google's public DNS IP
+  }
+
+  try {
     const response = await axios.get(`https://ipwho.is/${ip}`);
-    const {latitude,longitude,success,message} = response.data
-    console.log('the latitude:',latitude);
-    console.log('the longitude:',longitude);
-    if(!success) {
-        return res.status(400).json({message:`ip lookup failed:${message}`});
+    const { latitude, longitude, success, message } = response.data;
+
+    if (!success) {
+      return res.status(400).json({ message: `IP lookup failed: ${message}` });
     }
+
     const sql = 'SELECT * FROM schools';
-    db.query(sql,(err,results)=>{
-        if(err) return res.status(500).json({error:err.message});
-        const sorted = results.map(school=>({
-            ...school,
-            distance:calculateDistance(latitude,longitude,school.latitude,school.longitude),
-        })).sort((a,b)=>a.distance-b.distance);
-        res.json(sorted);
-    })
-   }
-   catch(error) {
-    res.status(500).json({error:error.message});
-   }
+    db.query(sql, (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const sorted = results.map((school) => ({
+        ...school,
+        distance: calculateDistance(latitude, longitude, school.latitude, school.longitude),
+      })).sort((a, b) => a.distance - b.distance);
+
+      res.json(sorted);
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
